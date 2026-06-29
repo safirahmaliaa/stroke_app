@@ -12,8 +12,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 
 # ── Weights ───────────────────────────────────────────────────────────────────
-CLASSIFIER_WEIGHTS = Path(r"G:\My Drive\SKRIPSI_FINAL_20260510_1708\03_MODEL_M3_DWI_ImportantSlice\M3_DWI_ImportantSlice_best.pth")
-NVAUTONET_WEIGHTS = Path(r"G:\My Drive\DeepIsles\weights\NVAUTO\ts")
+CLASSIFIER_WEIGHTS = Path("/content/drive/MyDrive/SKRIPSI_FINAL_20260510_1708/03_MODEL_M3_DWI_ImportantSlice/M3_DWI_ImportantSlice_best.pth")
+NVAUTONET_WEIGHTS = Path("/content/drive/MyDrive/DeepIsles/weights/NVAUTO/ts")
 NVAUTONET_N_CKPT = 15  # jumlah file model0.ts ... model14.ts
 
 # ── Direktori I/O ─────────────────────────────────────────────────────────────
