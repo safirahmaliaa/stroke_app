@@ -298,3 +298,51 @@ def create_full_grid(
         slices=None,
         n_slices=n_slices,
     )
+
+def create_side_by_side(
+    dwi_slice,
+    mask_slice,
+    title: str = "",
+):
+    """
+    Kompatibel dengan pages/result.py
+    """
+
+    disp = normalize_for_display(dwi_slice.T)
+    mask = mask_slice.T
+
+    overlay = red_overlay(disp, mask)
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import io
+    from PIL import Image
+
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+
+    ax[0].imshow(disp, cmap="gray", vmin=0, vmax=1)
+    ax[0].set_title("DWI")
+    ax[0].axis("off")
+
+    ax[1].imshow(overlay)
+    ax[1].set_title("Lesion Overlay")
+    ax[1].axis("off")
+
+    if title:
+        fig.suptitle(title)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(
+        buf,
+        format="png",
+        dpi=150,
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+
+    buf.seek(0)
+    return Image.open(buf)
