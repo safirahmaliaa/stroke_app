@@ -298,6 +298,3 @@ def create_full_grid(
         slices=None,
         n_slices=n_slices,
     )
-PYEOF
-echo "overlay.py updated"
-Output
