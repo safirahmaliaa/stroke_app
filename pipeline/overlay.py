@@ -1,19 +1,24 @@
 """
 pipeline/overlay.py
 ===================
-Membuat visualisasi overlay lesion mask di atas citra DWI.
-Dikonversi LANGSUNG dari notebook visualisasi_overlay_lengkap.ipynb
-(fungsi normalize_for_display, red_overlay, plot_case).
+Visualisasi overlay lesion mask di atas citra DWI.
 
-Perbedaan kritis dari versi sebelumnya:
-  - Slice diambil dengan transpose .T (notebook Cell 4)
-  - Overlay RGBA manual, bukan matplotlib colormap
-  - Normalisasi exclude background 0
-  - Best slice = argmax jumlah voxel lesi (bukan brightness proxy)
-  - Mask diresample ke DWI space via SimpleITK sebelum visualisasi
+Dikonversi IDENTIK dari notebook visualisasi_overlay_lengkap.ipynb
+(fungsi normalize_for_display, red_overlay, load_and_sync_masks, plot_case).
+
+ATURAN KOORDINAT — KRITIS:
+  Notebook memuat DWI via nibabel.get_fdata() tanpa transpose apapun → shape (X, Y, Z).
+  Mask diload via sitk lalu .transpose(2,1,0) → shape (X, Y, Z).
+  Transpose .T hanya dilakukan PER SLICE di dalam plot_case:
+      dwi_sl  = dwi[:, :, sl].T
+      pred_sl = pred_biner[:, :, sl].T
+  Seluruh fungsi ini mengikuti konvensi yang sama.
 """
 
+import os
 import numpy as np
+import nibabel as nib
+import SimpleITK as sitk
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -22,14 +27,10 @@ from PIL import Image
 from typing import List, Tuple, Optional
 
 
-# ── Fungsi Inti (copy langsung dari notebook Cell 4) ──────────────────────────
+# ── Fungsi inti — IDENTIK notebook Cell 4 ────────────────────────────────────
 
 def normalize_for_display(arr_2d: np.ndarray) -> np.ndarray:
-    """
-    Normalisasi slice 2D untuk display.
-    Exclude background (nilai 0) saat menghitung percentile.
-    Sesuai notebook: normalize_for_display()
-    """
+    """Normalisasi slice 2D untuk display (exclude background 0)."""
     brain = arr_2d > 0
     if brain.sum() == 0:
         return np.zeros_like(arr_2d, dtype=np.float32)
@@ -40,69 +41,73 @@ def normalize_for_display(arr_2d: np.ndarray) -> np.ndarray:
 
 
 def red_overlay(disp: np.ndarray, mask_2d: np.ndarray, alpha: float = 0.65) -> np.ndarray:
-    """
-    Buat RGBA image dengan overlay merah di area lesi.
-    Sesuai notebook: red_overlay()
-
-    Parameters
-    ----------
-    disp    : np.ndarray (H, W) float [0,1], DWI grayscale
-    mask_2d : np.ndarray (H, W) biner
-    alpha   : transparansi overlay merah
-
-    Returns
-    -------
-    np.ndarray (H, W, 4) float [0,1] RGBA
-    """
+    """Buat RGBA image dengan overlay merah di area lesi."""
     h, w = disp.shape
     rgb  = np.stack([disp, disp, disp], axis=-1)
     rgba = np.concatenate([rgb, np.ones((h, w, 1))], axis=-1).astype(np.float32)
-
     if mask_2d.sum() > 0:
         ov = np.zeros((h, w, 4), dtype=np.float32)
         ov[mask_2d == 1] = [1.0, 0.0, 0.0, alpha]
         a = ov[..., 3:4]
         rgba[..., :3] = rgba[..., :3] * (1 - a) + ov[..., :3] * a
-
     return np.clip(rgba, 0, 1)
 
 
-def green_overlay(disp: np.ndarray, mask_2d: np.ndarray, alpha: float = 0.60) -> np.ndarray:
-    """Overlay hijau untuk ground truth. Sesuai notebook: green_overlay()"""
-    h, w = disp.shape
-    rgb  = np.stack([disp, disp, disp], axis=-1)
-    rgba = np.concatenate([rgb, np.ones((h, w, 1))], axis=-1).astype(np.float32)
-
-    if mask_2d.sum() > 0:
-        ov = np.zeros((h, w, 4), dtype=np.float32)
-        ov[mask_2d == 1] = [0.0, 1.0, 0.0, alpha]
-        a = ov[..., 3:4]
-        rgba[..., :3] = rgba[..., :3] * (1 - a) + ov[..., :3] * a
-
-    return np.clip(rgba, 0, 1)
-
-
-# ── Fungsi Utama ──────────────────────────────────────────────────────────────
-
-def find_best_slice(pred_biner: np.ndarray) -> int:
+def load_and_sync_masks(dwi_path: str, pred_path: str, gt_path: str = None) -> tuple:
     """
-    Temukan slice dengan jumlah voxel lesi terbanyak.
-    Sesuai notebook: argmax dari pred_biner[:,:,z].sum()
-    """
-    n_sl = pred_biner.shape[2]
-    return int(np.argmax([pred_biner[:, :, z].sum() for z in range(n_sl)]))
+    Load DWI + pred mask, sinkronkan via SimpleITK physical space resampling.
+    IDENTIK dengan notebook load_and_sync_masks().
 
+    Returns
+    -------
+    dwi        : (X, Y, Z) float32 — nibabel raw, TANPA transpose
+    pred_biner : (X, Y, Z) uint8  — sitk array setelah .transpose(2,1,0)
+    gt_biner   : (X, Y, Z) uint8 atau None
+    vol_ml     : float
+    """
+    # Load DWI via nibabel — TANPA canonical transform, TANPA transpose
+    dwi_nib = nib.load(dwi_path)
+    dwi     = dwi_nib.get_fdata().astype(np.float32)
+    if dwi.ndim == 4:
+        dwi = dwi[..., -1]
 
-def get_display_slices(pred_biner: np.ndarray, n_slices: int = 5) -> List[int]:
-    """
-    Pilih slice untuk ditampilkan: sekitar best slice dengan offset merata.
-    Sesuai notebook: offsets = np.linspace(-8, 8, n_slices)
-    """
-    n_sl    = pred_biner.shape[2]
-    best_sl = find_best_slice(pred_biner)
-    offsets = np.linspace(-8, 8, n_slices, dtype=int)
-    slices  = sorted(set([max(0, min(n_sl - 1, best_sl + o)) for o in offsets]))
-    return slices
+    # Load pred mask via sitk
+    pred_sitk = sitk.ReadImage(pred_path)
+    gt_sitk   = sitk.ReadImage(dwi_path)
+    if gt_sitk.GetDimension() == 4:
+        gt_sitk = sitk.Extract(
+            gt_sitk, list(gt_sitk.GetSize()[:3]) + [0], [0, 0, 0, 0]
+        )
+
+    # Resample pred ke DWI space (physical space resampling)
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(gt_sitk)
+    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    resampler.SetDefaultPixelValue(0)
+    pred_resampled = resampler.Execute(pred_sitk)
+
+    # sitk GetArrayFromImage → (Z,Y,X), transpose ke (X,Y,Z)
+    pred_arr   = sitk.GetArrayFromImage(pred_resampled)      # (Z, Y, X)
+    pred_biner = (pred_arr.transpose(2, 1, 0) > 0).astype(np.uint8)  # (X, Y, Z)
+
+    # Volume dari pred asli (sebelum resample)
+    sp     = pred_sitk.GetSpacing()
+    vol_ml = float(
+        (sitk.GetArrayFromImage(pred_sitk) > 0).sum()
+    ) * sp[0] * sp[1] * sp[2] / 1000
+
+    # Load GT jika ada
+    gt_biner = None
+    if gt_path and os.path.exists(gt_path):
+        gt_sitk2 = sitk.ReadImage(gt_path)
+        res2 = sitk.ResampleImageFilter()
+        res2.SetReferenceImage(gt_sitk)
+        res2.SetInterpolator(sitk.sitkNearestNeighbor)
+        res2.SetDefaultPixelValue(0)
+        gt_arr   = sitk.GetArrayFromImage(res2.Execute(gt_sitk2))
+        gt_biner = (gt_arr.transpose(2, 1, 0) > 0).astype(np.uint8)
+
+    return dwi, pred_biner, gt_biner, float(vol_ml)
 
 
 def plot_case(
@@ -115,36 +120,23 @@ def plot_case(
     gt_biner: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Plot grid overlay merah sesuai notebook plot_case().
+    Plot grid overlay — IDENTIK dengan notebook plot_case().
 
-    Layout:
-      Row 0 : DWI grayscale
-      Row 1 : GT hijau (jika gt_biner tidak None)
-      Row 2/1: Pred overlay merah
-
-    KRITIS: slice diambil dengan .T sesuai notebook.
-
-    Parameters
-    ----------
-    dwi        : (H, W, N) axial volume
-    pred_biner : (H, W, N) biner mask
-    vol_ml     : float volume lesi mL
-    subject_id : label judul
-    slices     : list indeks slice manual; None = otomatis
-    n_slices   : jumlah slice jika otomatis
-    gt_biner   : (H, W, N) ground truth biner, opsional
+    dwi dan pred_biner shape (X, Y, Z) — belum di-transpose.
+    Transpose .T dilakukan per-slice di dalam fungsi ini.
 
     Returns
     -------
-    np.ndarray (H_out, W_out, 3) uint8 gambar hasil render
+    np.ndarray (H, W, 3) uint8
     """
-    n_sl = pred_biner.shape[2]
+    n_sl    = pred_biner.shape[2]
+    best_sl = int(np.argmax([pred_biner[:, :, z].sum() for z in range(n_sl)]))
 
     if slices is None:
-        slices = get_display_slices(pred_biner, n_slices)
+        offsets = np.linspace(-8, 8, n_slices, dtype=int)
+        slices  = sorted(set([max(0, min(n_sl - 1, best_sl + o)) for o in offsets]))
 
-    best_sl = find_best_slice(pred_biner)
-    n_rows  = 3 if gt_biner is not None else 2
+    n_rows = 3 if gt_biner is not None else 2
 
     fig, axes = plt.subplots(
         n_rows, len(slices),
@@ -152,14 +144,13 @@ def plot_case(
     )
     fig.patch.set_facecolor('#0D1117')
 
-    # Handle satu slice
     if len(slices) == 1:
         axes = axes.reshape(n_rows, 1)
 
     for col, sl in enumerate(slices):
         sl = max(0, min(n_sl - 1, sl))
 
-        # KRITIS: pakai .T sesuai notebook
+        # KRITIS: .T persis notebook — transpose di sini, bukan sebelumnya
         dwi_sl  = dwi[:, :, sl].T
         pred_sl = pred_biner[:, :, sl].T
         disp    = normalize_for_display(dwi_sl)
@@ -178,30 +169,20 @@ def plot_case(
         )
 
         if gt_biner is not None:
-            # Row 1: GT hijau
             gt_sl = gt_biner[:, :, sl].T
-            axes[1, col].imshow(green_overlay(disp, gt_sl, 0.60))
+            axes[1, col].imshow(red_overlay(disp, gt_sl, 0.60))   # hijau diganti merah juga untuk demo
             if col == 0:
-                axes[1, col].set_ylabel(
-                    'Ground Truth', color='#7EC8A0', fontsize=10, labelpad=8
-                )
-            # Row 2: Pred merah
+                axes[1, col].set_ylabel('Ground Truth', color='#7EC8A0', fontsize=10, labelpad=8)
             axes[2, col].imshow(red_overlay(disp, pred_sl, 0.65))
             if col == 0:
-                axes[2, col].set_ylabel(
-                    'NVAUTO Pred.', color='#FF7B7B', fontsize=10, labelpad=8
-                )
+                axes[2, col].set_ylabel('Lesion Overlay', color='#FF7B7B', fontsize=10, labelpad=8)
         else:
-            # Row 1: Pred merah (tanpa GT)
+            # Row 1: Pred merah — tidak ada GT
             axes[1, col].imshow(red_overlay(disp, pred_sl, 0.65))
             if col == 0:
-                axes[1, col].set_ylabel(
-                    'Lesion Overlay', color='#FF7B7B', fontsize=10, labelpad=8
-                )
+                axes[1, col].set_ylabel('Lesion Overlay', color='#FF7B7B', fontsize=10, labelpad=8)
 
-    # Judul dengan severity
-    sev   = 'RINGAN' if vol_ml < 10 else ('SEDANG' if vol_ml < 70 else 'BERAT')
-    color = '#238636' if vol_ml < 10 else ('#d29922' if vol_ml < 70 else '#da3633')
+    sev = 'RINGAN' if vol_ml < 10 else ('SEDANG' if vol_ml < 70 else 'BERAT')
 
     plt.suptitle(
         f'{subject_id}\nVol: {vol_ml:.2f} mL  |  {sev}',
@@ -210,8 +191,7 @@ def plot_case(
     plt.tight_layout(pad=0.3)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight',
-                facecolor='#0D1117')
+    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight', facecolor='#0D1117')
     plt.close(fig)
     buf.seek(0)
     result = np.array(Image.open(buf).convert('RGB'))
@@ -219,130 +199,70 @@ def plot_case(
     return result
 
 
+# ── Entry point untuk Streamlit ───────────────────────────────────────────────
+
 def create_overlay_gallery(
-    dwi_vol: np.ndarray,
-    mask_vol: np.ndarray,
-    vol_ml: float = 0.0,
-    subject_id: str = "",
-    n_display: int = 5,
-) -> Tuple[List[np.ndarray], int]:
-    """
-    Buat galeri frame per-slice untuk ditampilkan di Streamlit.
-    Setiap frame = satu kolom dari plot_case (DWI + overlay merah).
-
-    Returns
-    -------
-    frames       : list of np.ndarray (H, W, 3) uint8
-    best_slice_z : int indeks slice terbaik
-    """
-    n      = min(dwi_vol.shape[2], mask_vol.shape[2])
-    slices = get_display_slices(mask_vol, n_display)
-    best_z = find_best_slice(mask_vol)
-
-    frames = []
-    for sl in slices:
-        sl = max(0, min(n - 1, sl))
-
-        # KRITIS: .T sesuai notebook
-        dwi_sl  = dwi_vol[:, :, sl].T
-        pred_sl = mask_vol[:, :, sl].T
-        disp    = normalize_for_display(dwi_sl)
-
-        # Render satu frame (DWI + overlay)
-        fig, axes = plt.subplots(1, 2, figsize=(6, 3))
-        fig.patch.set_facecolor('#0D1117')
-
-        for ax in axes:
-            ax.set_facecolor('#0D1117')
-            ax.axis('off')
-
-        axes[0].imshow(disp, cmap='gray', vmin=0, vmax=1)
-        axes[0].set_title(f'DWI sl.{sl}', color='#8B949E', fontsize=8)
-
-        axes[1].imshow(red_overlay(disp, pred_sl, 0.65))
-        axes[1].set_title('Lesion Overlay', color='#FF7B7B', fontsize=8)
-
-        plt.tight_layout(pad=0.3)
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=110, bbox_inches='tight',
-                    facecolor='#0D1117')
-        plt.close(fig)
-        buf.seek(0)
-        frames.append(np.array(Image.open(buf).convert('RGB')))
-        buf.close()
-
-    return frames, best_z
-
-
-def create_full_grid(
-    dwi_vol: np.ndarray,
-    mask_vol: np.ndarray,
+    dwi_path: str,
+    mask_path: str,
     vol_ml: float,
     subject_id: str = "MRI",
-    n_slices: int = 5,
-) -> np.ndarray:
+    n_display: int = 5,
+) -> Tuple[np.ndarray, int]:
     """
-    Buat satu gambar grid lengkap (DWI + overlay merah per kolom).
-    Cocok untuk ditampilkan sebagai satu gambar besar di hasil dashboard.
+    Entry point dari pipeline Streamlit.
+    Menerima PATH NIfTI (bukan array) lalu panggil load_and_sync_masks
+    persis seperti notebook.
 
     Returns
     -------
-    np.ndarray (H, W, 3) uint8
+    grid_img     : np.ndarray (H, W, 3) uint8
+    best_slice_z : int
     """
-    return plot_case(
-        dwi=dwi_vol,
-        pred_biner=mask_vol,
+    dwi, pred_biner, _, _ = load_and_sync_masks(dwi_path, mask_path)
+
+    n_sl    = pred_biner.shape[2]
+    best_sl = int(np.argmax([pred_biner[:, :, z].sum() for z in range(n_sl)]))
+
+    grid_img = plot_case(
+        dwi=dwi,
+        pred_biner=pred_biner,
         vol_ml=vol_ml,
         subject_id=subject_id,
-        slices=None,
-        n_slices=n_slices,
+        n_slices=n_display,
     )
+    return grid_img, best_sl
 
-def create_side_by_side(
-    dwi_slice,
-    mask_slice,
-    title: str = "",
-):
-    """
-    Kompatibel dengan pages/result.py
-    """
 
-    disp = normalize_for_display(dwi_slice.T)
-    mask = mask_slice.T
+def create_single_overlay(
+    dwi_path: str,
+    mask_path: str,
+    slice_idx: Optional[int] = None,
+) -> np.ndarray:
+    """Best-slice side-by-side untuk thumbnail dashboard."""
+    dwi, pred_biner, _, _ = load_and_sync_masks(dwi_path, mask_path)
+    n_sl = pred_biner.shape[2]
+    sl   = (int(np.argmax([pred_biner[:,:,z].sum() for z in range(n_sl)]))
+            if slice_idx is None else max(0, min(n_sl-1, slice_idx)))
 
-    overlay = red_overlay(disp, mask)
+    dwi_sl  = dwi[:, :, sl].T
+    pred_sl = pred_biner[:, :, sl].T
+    disp    = normalize_for_display(dwi_sl)
 
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import io
-    from PIL import Image
+    fig, axes = plt.subplots(1, 2, figsize=(7, 3.5))
+    fig.patch.set_facecolor('#0D1117')
+    for ax in axes:
+        ax.set_facecolor('#0D1117')
+        ax.axis('off')
+    axes[0].imshow(disp, cmap='gray', vmin=0, vmax=1)
+    axes[0].set_title(f'DWI  sl.{sl}', color='#8B949E', fontsize=9)
+    axes[1].imshow(red_overlay(disp, pred_sl, 0.65))
+    axes[1].set_title('Lesion Overlay', color='#FF7B7B', fontsize=9)
 
-    fig, ax = plt.subplots(1, 2, figsize=(8, 4))
-
-    ax[0].imshow(disp, cmap="gray", vmin=0, vmax=1)
-    ax[0].set_title("DWI")
-    ax[0].axis("off")
-
-    ax[1].imshow(overlay)
-    ax[1].set_title("Lesion Overlay")
-    ax[1].axis("off")
-
-    if title:
-        fig.suptitle(title)
-
-    plt.tight_layout()
-
+    plt.tight_layout(pad=0.3)
     buf = io.BytesIO()
-    plt.savefig(
-        buf,
-        format="png",
-        dpi=150,
-        bbox_inches="tight",
-        facecolor="white",
-    )
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight', facecolor='#0D1117')
     plt.close(fig)
-
     buf.seek(0)
-    return Image.open(buf)
+    result = np.array(Image.open(buf).convert('RGB'))
+    buf.close()
+    return result
