@@ -143,15 +143,17 @@ def _run_clinical_pipeline(dwi_path, adc_path, flair_path):
     prog.progress(90, text="Membuat visualisasi overlay...")
 
     # Step 7: Overlay
-    mask_arr = seg_result["mask_array"]
-    if mask_arr is not None:
-        frames, best_z = create_overlay_gallery(dwi_axial, mask_arr)
-        set_state("overlay_frames",  frames)
+    try:
+        grid_img, best_z = create_overlay_gallery(
+            dwi_path=dwi_path,
+            mask_path=seg_result["mask_path"],
+            vol_ml=vol_ml,
+            subject_id="MRI Pasien",
+        )
+        set_state("overlay_grid",    grid_img)
         set_state("best_slice_idx",  best_z)
-
-    prog.progress(100, text="✅ Analisis selesai!")
-    time.sleep(0.5)
-    return True
+    except Exception as e:
+        st.warning(f"Overlay gagal: {e}")
 
 
 def _run_quick_pipeline(image_array):
