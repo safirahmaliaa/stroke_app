@@ -66,5 +66,3 @@ def is_result_ready() -> bool:
 
 def is_segmentation_ready() -> bool:
     return bool(st.session_state.get("seg_done", False))
-EOF
-echo "session.py OK"
