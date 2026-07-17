@@ -78,7 +78,7 @@ def render():
     seg_done     = get_state("seg_done")
     vol_ml       = get_state("lesion_volume_ml")
     sev_label    = get_state("severity_label")
-    overlay_frs  = get_state("overlay_frames")
+    overlay  = get_state("overlay_grid")
     dwi_display  = get_state("dwi_display")
     image_array  = get_state("image_array")
 
