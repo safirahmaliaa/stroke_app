@@ -276,5 +276,3 @@ def _render_quick():
                 set_state("pipeline_running", False)
                 set_state("pipeline_error", str(e))
                 st.error(f"Error: {e}")
-EOF
-echo "analysis.py OK"
