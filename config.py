@@ -72,5 +72,3 @@ APP_ICON         = "🧠"
 ALLOWED_NIFTI_TYPES = [".nii", ".nii.gz"]
 ALLOWED_IMAGE_TYPES = ["jpg", "jpeg", "png"]
 SEED = 42
-EOF
-echo "config.py OK"
