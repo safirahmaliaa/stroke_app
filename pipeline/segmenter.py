@@ -61,6 +61,3 @@ def run_segmentation(adc_path: str, dwi_path: str, out_mask_path: str, device: s
     except Exception as e:
         err = {**_empty}; err["error"] = str(e)
         return err
-EOF
-echo "segmenter.py OK"
-Output
