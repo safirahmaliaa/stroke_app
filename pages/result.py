@@ -176,32 +176,11 @@ def render():
                 cols_view[i].image(Image.open(buf), use_container_width=True)
 
     # ── 3. Segmentasi dan Overlay ─────────────────────────────────────────────
-    if seg_done and overlay_frs:
+    if seg_done and overlay is not None:
         st.divider()
         st.markdown("### 3. Segmentasi Lesi — Overlay")
-        st.markdown(
-            "Warna **merah** menunjukkan area lesi yang tersegmentasi oleh NVAutoNet."
-        )
-
-        n_frames = len(overlay_frs)
-        cols_ov  = st.columns(min(n_frames, 5))
-        for i, frame in enumerate(overlay_frs[:5]):
-            cols_ov[i].image(frame, use_container_width=True,
-                             caption=f"Slice {i+1}")
-
-        # Side-by-side dari best slice
-        if dwi_display is not None:
-            seg_array = get_state("seg_mask_array")
-            best_z    = get_state("best_slice_idx") or find_best_axial_slice(dwi_display)
-            best_z    = min(best_z, dwi_display.shape[2] - 1)
-
-            if seg_array is not None:
-                sb_img = create_side_by_side(
-                    dwi_display[:, :, best_z],
-                    seg_array[:, :, min(best_z, seg_array.shape[2] - 1)],
-                    title=f"Slice Terbaik (z={best_z})",
-                )
-                st.image(sb_img, use_container_width=True)
+        st.markdown("Warna **merah** menunjukkan area lesi yang tersegmentasi oleh NVAutoNet.")
+        st.image(overlay, use_container_width=True)
 
     # ── 4. Volume dan Keparahan ───────────────────────────────────────────────
     if seg_done and vol_ml is not None and sev_label is not None:
