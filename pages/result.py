@@ -10,6 +10,7 @@ import streamlit as st
 from utils.session import init_session_state, get_state, set_state, clear_all
 from utils.nifti_utils import find_best_axial_slice
 from config import SEVERITY_LABELS
+from pages.analysis import run_segmentation_phase
 
 
 def _confidence_bar(prob: float, label: str):
@@ -84,6 +85,18 @@ def render():
     if not clf_done:
         st.warning("Belum ada hasil analisis. Silakan jalankan analisis terlebih dahulu.")
         return
+
+    # Jalankan segmentasi otomatis sekali
+    if get_state("seg_pending"):
+        with st.spinner("Menjalankan segmentasi lesi..."):
+            run_segmentation_phase()
+        st.rerun()
+
+    # Refresh state setelah segmentasi selesai
+    seg_done = get_state("seg_done")
+    vol_ml = get_state("lesion_volume_ml")
+    sev_label = get_state("severity_label")
+    overlay = get_state("overlay_grid")
 
     # ── 1. Ringkasan Klasifikasi ──────────────────────────────────────────────
     st.markdown("### 1. Hasil Klasifikasi")
