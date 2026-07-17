@@ -9,7 +9,6 @@ import streamlit as st
 
 from utils.session import init_session_state, get_state, set_state, clear_all
 from utils.nifti_utils import find_best_axial_slice
-from pipeline.overlay import create_side_by_side
 from config import SEVERITY_LABELS
 
 
