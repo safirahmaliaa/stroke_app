@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).parent.resolve()
 
 # ── Weights — path relatif dari root project ──────────────────────────────────
 CLASSIFIER_WEIGHTS = BASE_DIR / "weights" / "classifier" / "M3_DWI_ImportantSlice_best.pth"
-NVAUTONET_WEIGHTS  = BASE_DIR / "weights" / "nvautonet" / "ts"
+NVAUTONET_WEIGHTS = Path("/content/drive/MyDrive/DeepIsles/weights/NVAUTO/ts")
 NVAUTONET_N_CKPT   = 15
 
 # ── Direktori I/O ─────────────────────────────────────────────────────────────
